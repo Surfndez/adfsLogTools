@@ -24,7 +24,7 @@ $script:CONST_AUDITS_LINKED = @(500, 501, 502, 503, 510)
 $script:CONST_TIMELINE_AUDITS = @(299, 324, 403, 411, 412)
 
 # TODO: PowerShell is not good with JSON objects. Headers should be {}. 
-$script:REQUEST_OBJ_TEMPLATE = '{"num": 0,"time": "1/1/0001 12:00:00 AM","protocol": "","host": "","method": "","url": "","query": "","useragent": "","server": "","clientip": "","contlen": 0,"headers": [],"tokens": [],"ver": "1.0"}'
+$script:REQUEST_OBJ_TEMPLATE = '{"num": 0,"time": "1/1/0001 12:00:00 AM","protocol": "","host": "","method": "","url": "","query": "", "queryparameters": {},"useragent": "","server": "","clientip": "","contlen": 0,"headers": [],"tokens": [],"ver": "1.0"}'
 $script:RESPONSE_OBJ_TEMPLATE = '{"num": 0,"time": "1/1/0001 12:00:00 AM","result": "","headers": {},"tokens": [],"ver": "1.0"}'
 $script:ANALYSIS_OBJ_TEMPLATE = '{"requests": [],"responses": [],"errors": [],"timeline": [],"ver": "1.0"}'
 $script:ERROR_OBJ_TEMPLATE = '{"time": "1/1/0001 12:00:00 AM","eventid": 0,"level": "", "message": [],"ver": "1.0"}'
@@ -790,6 +790,24 @@ function Generate-ResponseEvent
     return $response
 }
 
+function ParseQueryString
+{
+    param(
+    [Parameter(Mandatory=$True)]
+    [string]$QueryString)
+
+    $Parameters = @{}
+    $SplitString = $QueryString.Split("&")
+    foreach($Pair in $SplitString)
+    {
+        $KeyValuePair = $Pair.Split("=")
+        $Key = $KeyValuePair[0]
+        $Parameters.$Key = $KeyValuePair[1]
+    }
+
+    Write-Output($Parameters)
+    
+}
 
 function Generate-RequestEvent
 {
@@ -818,6 +836,7 @@ function Generate-RequestEvent
     $currentRequest.method = $event.RemoteProperties[4]  #HTTP_Method
     $currentRequest.url = $event.RemoteProperties[5]  #URL
     $currentRequest.query = $event.RemoteProperties[6]  #QueryString
+    $currentRequest.queryparameters = ParseQueryString -QueryString ($currentRequest.query).Substring(1) # QueryString Parameters
     $currentRequest.useragent = $event.RemoteProperties[9]  #UserAgent
     $currentRequest.contlen = $event.RemoteProperties[10]  #ContentLength
     $currentRequest.server = $event.MachineName
@@ -1161,6 +1180,91 @@ function AggregateOutputObject
     return $Output
 }
 
+function ConstructRequestInfoObject
+{
+    param(
+        [parameter(Mandatory=$true)]
+        [PsObject]$Requests
+    )
+    $Reqs =  @()
+    foreach($Request in $Requests)
+    {
+    $HeaderParams = $Request.Headers | Get-Member -MemberType NoteProperty
+    $HeaderString = ""
+    foreach ($Header in $HeaderParams)
+    {
+        $Name = $Header.Name
+        $HeaderString += $Name + ":" + $Request.Headers.$Name + ", "
+    }
+
+    $QueryParamString = ""
+    foreach($Key in $Request.QueryParameters.Keys)
+    {
+        $QueryParamString += $Key + ":" + $Request.QueryParameters[$Key] + "<br>"
+    }
+    
+    $Output = New-Object PSObject -Property @{
+        "Time" = $Request.Time
+        "Protocol" = $Request.Protocol
+        "Method" = $Request.Method
+        "Url" = $Request.Url
+        "Query" = $Request.query
+        "QueryParameters" = $QueryParamString
+        "Headers" = $HeaderString
+    }
+    $Reqs+=$Output
+    }
+
+    return ($Reqs | ConvertTo-Html -Fragment -PreContent "<h2>Request Information</h2>" -Property Time,Protocol,Method,Url,Query,QueryParameters | Out-String).Replace("&lt;br&gt;", "<br>")
+}
+
+function ConstructResponseInfoObject
+{
+    param(
+        [parameter(Mandatory=$true)]
+        [PsObject]$Responses
+    )
+
+    $Resps = @()
+    foreach($Response in $Responses)
+    {
+        $HeaderParams = $Response.Headers | Get-Member -MemberType NoteProperty
+        $HeaderString = ""
+        foreach ($Header in $HeaderParams)
+        {
+            $Name = $Header.Name
+            $HeaderString += $Name + ":" + $Response.Headers.$Name + "<br>"
+        }
+        $Output = New-Object PSObject -Property @{
+            "Time" = $Response.Time
+            "Result" = $Response.Result
+            "Headers" = $HeaderString
+        }
+        $Resps+=$Output
+    }
+    return ($Resps | ConvertTo-Html -Fragment -PreContent "<h2>Response Information</h2>" -Property Time,Result, Headers | Out-String).Replace("&lt;br&gt;", "<br>")
+
+}
+
+function ConstructErrorInfoObject
+{
+    param(
+        [parameter(Mandatory=$true)]
+        [PSObject]$Errors
+    )
+    $Errs = @()
+    foreach($Error in $Errors)
+    {
+        $Output = New-Object PSObject -Property @{
+            "Time" = $Error.Time
+            "EventId" = $Error.EventID
+            "Message" = $Error.Message
+        }
+        $Errs+=$Output
+    }
+    return ($Errs | ConvertTo-Html -Fragment -PreContent "<h2>Error Information</h2>" -Property Time,Eventid,Message | Out-String)
+}
+
 
 
 
@@ -1204,6 +1308,37 @@ function Write-ADFSEventsSummary
 
         Write-Output $newRow
     }
+}
+
+function Write-ADFSEventsToTable
+{
+    param(
+        [parameter(ValueFromPipeLine=$True)]
+        [PSObject]$EventData
+    )
+    $AnalysisData = $EventData.AnalysisData
+
+    $head = @"
+<Title>Analysis Data</Title>
+<style>
+body { background-color:#FFFFFF;
+       font-family:Tahoma;
+       font-size:12pt; }
+td, th { border:1px solid black; 
+         border-collapse:collapse; word-wrap:break-word; }
+th { color:white;
+     background-color:black; }
+table, tr, td, th { padding: 2px; margin: 0px; table-layout: fixed; }
+tr:nth-child(odd) {background-color: lightgray}
+table { width:95%;margin-left:5px; margin-bottom:20px;}
+</style>
+<br>
+<H1>Analysis Data</H1>
+"@
+   $RequestHtml = ConstructRequestInfoObject -Requests $AnalysisData.Requests
+   $ResponseHtml = ConstructResponseInfoObject -Responses $AnalysisData.Responses
+   $ErrorHtml = ConstructErrorInfoObject -Errors $AnalysisData.Errors
+   ConvertTo-Html -Body $RequestHtml,$ResponseHtml,$ErrorHtml -Head $Head > EventsOutput.htm
 }
 
 
@@ -1384,3 +1519,4 @@ Export-ModuleMember -Function Enable-ADFSAuditing
 Export-ModuleMember -Function Disable-ADFSAuditing
 Export-ModuleMember -Function Get-ADFSEvents
 Export-ModuleMember -Function Write-ADFSEventsSummary
+Export-ModuleMember -Function Write-ADFSEventsToTable
