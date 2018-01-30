@@ -1000,6 +1000,7 @@ function Process-EventsForAnalysis
     # TODO: Validate that all events have the same correlation ID, or no correlation ID 
 
     # Validate that the events are sorted by time 
+    try{
     $events = $events | Sort-Object TimeCreated 
 
     $requestCount = 0
@@ -1154,6 +1155,10 @@ function Process-EventsForAnalysis
     $analysisObj.timeline = $allTimeline
 
     return $analysisObj
+    }
+    catch{
+         Write-Warning " Error: $_"
+    }
 }
 
 function AggregateOutputObject
