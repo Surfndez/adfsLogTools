@@ -281,9 +281,10 @@ function MakeQuery
         #
         # Perform Get-WinEvent call to collect logs 
         #
+        $Result = @()
         if ( $FilePath.Length -gt 0 -and !$ByTime)
         {   
-            $Result = Get-WinEvent -Path $FilePath -FilterXPath $Query -ErrorAction SilentlyContinue -Oldest
+            $Result += Get-WinEvent -Path $FilePath -FilterXPath $Query -ErrorAction SilentlyContinue -Oldest
         }
         elseif ( $ByTime )
         {
@@ -295,20 +296,20 @@ function MakeQuery
             # Filtering based on time is more robust when using hashtable filters
             if($FilePath.Length -gt 0)
             {
-                $Result = Get-WinEvent -FilterHashtable @{Path = $FilePath; providername = $providername; starttime = $AdjustedStart; endtime = $AdjustedEnd} -ErrorAction SilentlyContinue
+                $Result += Get-WinEvent -FilterHashtable @{Path = $FilePath; providername = $providername; starttime = $AdjustedStart; endtime = $AdjustedEnd} -ErrorAction SilentlyContinue
             }
             elseif ( $Log -eq "security" )
             {
-                $Result = Get-WinEvent -FilterHashtable @{logname = $Log; providername = $providername; starttime = $AdjustedStart; endtime = $AdjustedEnd} -ErrorAction SilentlyContinue
+                $Result += Get-WinEvent -FilterHashtable @{logname = $Log; providername = $providername; starttime = $AdjustedStart; endtime = $AdjustedEnd} -ErrorAction SilentlyContinue
             }
             else
             {
-                $Result = Get-WinEvent -FilterHashtable @{logname = $Log; starttime = $AdjustedStart; endtime = $AdjustedEnd} -ErrorAction SilentlyContinue -Oldest
+                $Result += Get-WinEvent -FilterHashtable @{logname = $Log; starttime = $AdjustedStart; endtime = $AdjustedEnd} -ErrorAction SilentlyContinue -Oldest
             }
         }
         else
         {
-            $Result = Get-WinEvent -LogName $Log -FilterXPath $Query -ErrorAction SilentlyContinue -Oldest
+            $Result += Get-WinEvent -LogName $Log -FilterXPath $Query -ErrorAction SilentlyContinue -Oldest
         }
 
         #
@@ -1194,13 +1195,19 @@ function ConstructRequestInfoObject
     $Reqs =  @()
     foreach($Request in $Requests)
     {
-    $HeaderParams = $Request.Headers | Get-Member -MemberType NoteProperty
-    $HeaderString = ""
-    foreach ($Header in $HeaderParams)
-    {
-        $Name = $Header.Name
-        $HeaderString += $Name + ":" + $Request.Headers.$Name + ", "
-    }
+        $HeaderString = ""
+        try
+        {
+            $HeaderParams = $Response.Headers | Get-Member -MemberType NoteProperty -ErrorAction SilentlyContinue
+            foreach ($Header in $HeaderParams)
+            {
+                $Name = $Header.Name
+                $HeaderString += $Name + ":" + $Response.Headers.$Name + "<br>"
+            }
+        }
+        catch
+        {
+        }
 
     $QueryParamString = ""
     foreach($Key in $Request.QueryParameters.Keys)
@@ -1233,12 +1240,18 @@ function ConstructResponseInfoObject
     $Resps = @()
     foreach($Response in $Responses)
     {
-        $HeaderParams = $Response.Headers | Get-Member -MemberType NoteProperty
         $HeaderString = ""
-        foreach ($Header in $HeaderParams)
+        try
         {
-            $Name = $Header.Name
-            $HeaderString += $Name + ":" + $Response.Headers.$Name + "<br>"
+            $HeaderParams = $Response.Headers | Get-Member -MemberType NoteProperty -ErrorAction SilentlyContinue
+            foreach ($Header in $HeaderParams)
+            {
+                $Name = $Header.Name
+                $HeaderString += $Name + ":" + $Response.Headers.$Name + "<br>"
+            }
+        }
+        catch
+        {
         }
         $Output = New-Object PSObject -Property @{
             "Time" = $Response.Time
