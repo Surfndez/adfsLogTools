@@ -248,7 +248,7 @@ function MakeQuery
     [System.Management.Automation.Runspaces.PSSession]$Session,
 
     [parameter(Mandatory=$false)]
-    [string]$FilePath,
+    [string[]]$FilePath,
 
     [parameter(Mandatory=$false)]
     [bool]$ByTime,
@@ -276,15 +276,18 @@ function MakeQuery
         [bool]$ByTime,
         [DateTime]$Start,
         [DateTime]$End,
-        [string]$FilePath)
+        [string[]]$FilePath)
 
         #
         # Perform Get-WinEvent call to collect logs 
         #
         $Result = @()
-        if ( $FilePath.Length -gt 0 -and !$ByTime)
+        if ( $FilePath.Count -gt 0 -and !$ByTime)
         {   
-            $Result += Get-WinEvent -Path $FilePath -FilterXPath $Query -ErrorAction SilentlyContinue -Oldest
+            foreach($Path in $FilePath)
+            {
+                $Result += Get-WinEvent -Path $Path -FilterXPath $Query -ErrorAction SilentlyContinue -Oldest
+            }
         }
         elseif ( $ByTime )
         {
@@ -360,13 +363,17 @@ function MakeQuery
         #
         # If we have instance IDs to collect accross, do that collection now
         #
+        $instanceIdResultsRaw = @()
         if ( $instanceIdsToQuery.Count -gt 0 )
         {
             foreach ( $eventID in $auditsWithInstanceIds )
             { 
-                if ( $FilePath )
+                if ( $FilePath.Count -gt 0 )
                 {
-                    $instanceIdResultsRaw = Get-WinEvent -FilterHashtable @{Path= $FilePath; providername = $providername; Id = $eventID } -ErrorAction SilentlyContinue
+                    foreach($Path in $FilePath)
+                    {
+                        $instanceIdResultsRaw += Get-WinEvent -FilterHashtable @{Path= $Path; providername = $providername; Id = $eventID } -ErrorAction SilentlyContinue
+                    }
                 }
                 else
                 {
@@ -390,9 +397,9 @@ function MakeQuery
                                 $Properties += $Property.value
                             }
 
-                            $instanceEvent | Add-Member RemoteProperties $Properties
-                            $instanceEvent | Add-Member AdfsInstanceId $instanceEvent.Properties[0].Value
-                            $instanceEvent | Add-Member CorrelationID $correlationID
+                            $instanceEvent | Add-Member RemoteProperties $Properties -Force
+                            $instanceEvent | Add-Member AdfsInstanceId $instanceEvent.Properties[0].Value -Force
+                            $instanceEvent | Add-Member CorrelationID $correlationID -Force
 
                             $Result += $instanceEvent
                         }                    
@@ -435,7 +442,7 @@ function GetSecurityEvents
     [bool]$IncludeLinkedInstances,
 
     [parameter(Mandatory=$false)]
-    [string]$FilePath
+    [string[]]$FilePath
 
     )
 
@@ -477,7 +484,7 @@ function GetAdminEvents
     [DateTime]$End, 
 
     [parameter(Mandatory=$false)]
-    [string]$FilePath
+    [string[]]$FilePath
 
     ) 
 
@@ -519,7 +526,7 @@ function GetDebugEvents
     [DateTime]$End,
 
     [parameter(Mandatory=$false)]
-    [string]$FilePath
+    [string[]]$FilePath
 
     )
 
@@ -564,7 +571,7 @@ function QueryDesiredLogs
         [bool]$IncludeLinkedInstances,
 
         [parameter(Mandatory=$false)]
-        [string]$FilePath
+        [string[]]$FilePath
     )
 
 
@@ -1416,7 +1423,7 @@ function Get-ADFSEvents
     [string[]]$Server="LocalHost",
 
     [parameter(Mandatory=$false, ValueFromPipeline=$True, ValueFromPipelineByPropertyName=$True)]
-    [string]$FilePath
+    [string[]]$FilePath
     )
 
     # TODO: Add warning if environment is not Win2016
@@ -1461,11 +1468,10 @@ function Get-ADFSEvents
         Write-Error "Invalid Correlation ID. Please provide a valid GUID."
         Break
     }
-    
+    $Events = @()
     # Iterate through each server, and collect the required logs
     foreach ( $Machine in $Server )
     {
-        $Events = @()
         $includeLinks = $false
         if ( $CreateAnalysisData )
         {
